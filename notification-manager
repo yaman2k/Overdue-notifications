@@ -1,0 +1,106 @@
+<?php
+    
+    //connect to your SQL server
+	mysql_connect("localhost","username","password") or
+        die("DB connection issue" . mysql_error());
+
+    // Select Snipe-IT Database
+    mysql_select_db("DBNAME");
+
+
+    // Query to get list of managers and which happen to have due date of over 90 days
+    // note that I am referring to Company ID = 1.  You can change that or remove it if you don't have multi-tenancy setup
+    $result = mysql_query("SELECT u2.username AS Manager, u2.first_name,asset_tag,serial,date(last_checkout) AS last_checkout,expected_checkin, CONCAT(u1.first_name,' ', u1.last_name) AS name, u1.phone, datediff(CURRENT_DATE, expected_checkin) As overdue, concat(u2.username,'@DOMAIN.com') as email
+							FROM assets
+                            INNER JOIN users u1 ON assets.assigned_to=u1.id 
+                            LEFT JOIN users u2 ON u1.manager_id = u2.id
+                            WHERE expected_checkin <= CURRENT_DATE AND assets.company_id='1' AND datediff(CURRENT_DATE, expected_checkin) > 90
+							GROUP BY Manager");
+							
+    // counter to see how many emails are being sent to the managers
+	$i = 0;
+
+
+    // loop through each row of entries
+    while($row=mysql_fetch_array($result)){
+		
+		$manager_temp = $row[0];
+        
+        // This is for testing purposes
+		echo $manager_temp;
+        
+        // Query again to get the additioanl items overdue
+		$result_employees = mysql_query("SELECT u2.username AS Manager, u2.first_name,asset_tag,serial,date(last_checkout) AS last_checkout,expected_checkin, CONCAT(u1.first_name,' ', u1.last_name) AS name, u1.phone, datediff(CURRENT_DATE, expected_checkin) As overdue
+							FROM assets
+                            INNER JOIN users u1 ON assets.assigned_to=u1.id 
+                            LEFT JOIN users u2 ON u1.manager_id = u2.id
+                            WHERE expected_checkin <= CURRENT_DATE AND assets.company_id='1' AND datediff(CURRENT_DATE, expected_checkin) > 90 AND u2.username = '$manager_temp'
+                            ORDER BY name");
+        
+        // identify the email to send out to
+		$to = $row['email'];
+		
+		$i = $i +1;
+		
+		//$str=$row['expected_checkin'];
+		//$str = strtotime(date("M d Y ")) - (strtotime($str));
+		//$days = floor($str/3600/24);
+		//$overdue_timer = floor ($days/7);
+        
+		$message = "Dear ".$row['first_name'].',<br><br>
+        This is an automated weekly notification that the following direct employees have demo items that are more than <b>90 DAYS OVERDUE</b>:
+        
+		<br><br>
+        <table rules="all" style="border-color: #666;" cellpadding="10">
+            <tr style="background: #eee;">
+                <td>Asset Tag</td>
+                <td>Serial</td>
+				<td>Check Out Date</td>
+				<td>Due Date</td>
+				<td>Employee </td>
+				<td>Days Overdue</td>
+            </tr>
+        ';
+
+		
+        // compose the table entries
+		while ($row2=mysql_fetch_array($result_employees)){
+			
+			$message .= "<tr>";
+			$message .= "   <td>".$row2['asset_tag'];
+			$message .= "   <td>".$row2['serial'];
+			$message .= "   <td>".$row2['last_checkout'];
+			$message .= "   <td style='color:red;'>".$row2['expected_checkin'];
+			$message .= "	<td>".$row2['name'];
+			$message .= "	<td>".$row2['overdue'];
+			$message .= "</tr>";
+							
+		}
+	
+		$message .= "
+		</table>
+		<br><br>
+		You are kindly requested to make sure these items are <b>returned as soon as possible</b>.  To check status of any items, please visit http://SITE.COM. .<br><br>
+    
+		Thank you,<br>
+		Inventory Demo Team";
+  
+		$subject = 'Take Action: Overdue Demo Items';
+		$header = "From:admin@DEMO.com \r\n";
+		$header .= "MIME-Version: 1.0\r\n";
+		$header .= "Content-type: text/html\r\n";
+		$header .= "CC:admin@DEMO.com\r\n";
+		
+        // using php mailer
+		$confirmation = mail($to, $subject, $message, $header);
+			
+    }
+	
+	if ($confirmation){
+		echo "A total of ".$i." emails sent successfully";
+	}else {
+		echo "Issue sending e-mails. Please contact admin@DEMO.com";
+	}
+	
+	
+?>
